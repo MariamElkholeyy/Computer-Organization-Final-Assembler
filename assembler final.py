@@ -96,9 +96,11 @@ Register_instruction_map = {
 
 #First Pass
 
-def first_pass_assembler_sl(assembly_code):
+def first_pass_assembler(assembly_code):
     symbol_table = {}
     symbol_labels = {}
+    instruction_label = []
+    instruction_locations = []
     location_counter = 0
 
     for line in assembly_code.split('\n'):
@@ -107,8 +109,13 @@ def first_pass_assembler_sl(assembly_code):
         if tokens and tokens[0] not in ["ORG", "END"]:
             if tokens[0].endswith(","):
                 symbol_table[tokens[0].strip(",")] = location_counter
+                instruction_label.append(tokens[0].strip(","))
+                instruction_locations.append(location_counter)
+                
             else:
                 symbol_table[tokens[0]] = location_counter
+                instruction_label.append(tokens[0].strip(","))
+                instruction_locations.append(location_counter)
 
         if tokens and len(tokens) >= 2 and tokens[0] == "ORG":
             location_counter = int(tokens[1])
@@ -119,159 +126,54 @@ def first_pass_assembler_sl(assembly_code):
         if tokens and tokens[0] not in ["ORG", "END", ";"]:
             location_counter += 1
 
-    return symbol_labels
-
-def first_pass_assembler_st(assembly_code):
-    symbol_table = {}
-    symbol_labels = {}
-    location_counter = 0
-
-    for line in assembly_code.split('\n'):
-        tokens = line.split()
-
-        if tokens and tokens[0] not in ["ORG", "END"]:
-            if tokens[0].endswith(","):
-                symbol_table[tokens[0].strip(",")] = location_counter
-            else:
-                symbol_table[tokens[0]] = location_counter
-
-        if tokens and len(tokens) >= 2 and tokens[0] == "ORG":
-            location_counter = int(tokens[1])
-
-        if len(tokens) >=2 and tokens[0].endswith(","):
-            symbol_labels[tokens[0].strip(',')] = location_counter
-            
-        if tokens and tokens[0] not in ["ORG", "END", ";"]:
-            location_counter += 1
-
-    return symbol_table
-
-
+    return symbol_table  , symbol_labels, instruction_label , instruction_locations
 
 #Second Pass 
-          
+
 def second_pass_assembler(assembly_code):
-    symbol_table = first_pass_assembler_st(assembly_code)
-    location =[]
+    symbol_table,symbol_label , instruction_label, instruction_locations = first_pass_assembler(assembly_code)
+    location = []
     opcode = None
     address = None
     instruction = []
-    for  line in assembly_code.split('\n'):
-        
+
+    for line in assembly_code.split('\n'):
         tokens = line.split()
-        # print(tokens)
-        
-        #GETTING LOCATION 
-        if tokens and tokens[0].strip(';') not in ['ORG' , 'END']:
-            if tokens[0].endswith(","):
-                if tokens[1] in ['DEC' , 'HEX']:
-                    print("*"*50)
-                    location.append(symbol_table[tokens[0].strip(',')])
-                else :
-                    continue
+        if not tokens or tokens[0].strip(';') in ['ORG', 'END']:
+            continue
+
+        if tokens[0].endswith(","):
+            tokens = tokens[1:]
+
+        if tokens[0] in ['DEC', 'HEX']:
+            if tokens[0] == 'DEC':
+                value = int(tokens[1])
+                if value >= 0:
+                    instruction.append(bin(value)[2:].zfill(16))
+                else:
+                    instruction.append(twos_complement_xor(bin(abs(value))[2:].zfill(16)))
+            elif tokens[0] == 'HEX':
+                instruction.append(bin(int(tokens[1], 16))[2:].zfill(16))
+        elif tokens[0] in MR_instruction_map.keys():
+            if tokens[-1] == 'I':
+                opcode = get_binary_code(tokens[0], 1)
+                address = hex_to_binary(str(symbol_table[tokens[1]]))
+                instruction.append(f'{opcode} {address}')
             else:
-                if tokens[0] not in ['DEC' , 'HEX'] :
-                    # location.append(symbol_table[tokens[0]])
-                    location.append(symbol_table[tokens[0]])
-    
-        #Getting the Opcode and address 
-        if tokens and tokens[0].strip(';') not in ['ORG' , 'END']:
-            #Before it a Label 
-            if tokens[0].endswith(","):
-                if tokens[1] not in ['DEC' , 'HEX']:
-                    if tokens[1] in MR_instruction_map.key() :
-                        if tokens[-1] =='I':
-                            opcode = get_binary_code(tokens[1] , 1)
-                            if tokens[2]:
-                                # if tokens[2] in symbol_table:
-                                address = hex_to_binary(symbol_table[tokens[2]]) 
-                                instruction.append(f'{opcode} {address}')
-                        else :
-                            opcode = get_binary_code(tokens[1] , 0)
-                            address = hex_to_binary(symbol_table[tokens[2]]) 
-                            instruction.append(f'{opcode} {address}')
-                    
-                    
-                    elif tokens[1] in In_Out_instruction_map.keys():
-                        instruction.append(bin(Register_instruction_map[tokens[0]])[2:].zfill(16))
-                    
-                    elif tokens[1] in In_Out_instruction_map.keys():
-                        instruction.append(In_Out_instruction_map[tokens[1]])
+                opcode = get_binary_code(tokens[0], 0)
+                address = hex_to_binary(str(symbol_table[tokens[1]]))
+                instruction.append(f'{opcode} {address}')
+        elif tokens[0] in Register_instruction_map.keys():
+            instruction.append(hex_to_binary(str(Register_instruction_map[tokens[0]])))
+        elif tokens[0] in In_Out_instruction_map.keys():
+            instruction.append(bin(In_Out_instruction_map[tokens[0]])[2:].zfill(16))
 
-                elif tokens[1] in ['DEC' , 'HEX']:
-                    if tokens[1] == 'DEC':
-                        if int(tokens[2]) >= 0 :
-                            instruction.append(bin(int(tokens[2]))[2:].zfill(16))
-                        else : 
-                            x =int(tokens[2])* -1
-                            x_b = bin(x)[2:].zfill(16)
-                            n_value = twos_complement_xor(str(x_b))
-                            instruction.append(n_value)
-                            
-                    else:
-                        if tokens[2] :
-                            x = bin(int(tokens[2], 16))[2:].zfill(16)
-                            instruction.append(x)
-                        
-            # No Label 
-            # Memory Refrence Instruction
-            elif tokens[0] in MR_instruction_map.keys() :
-                        if tokens[-1] =='I':
-                            opcode = get_binary_code(tokens[0] , 1)
-                            
-                            # if tokens[2] in symbol_table:
-                            address = hex_to_binary(symbol_table[tokens[1]]) 
-                            instruction.append(f'{opcode} {address}')
-                        else :
-                            opcode = get_binary_code(tokens[0] , 0)
-                            address = hex_to_binary(str(symbol_table[tokens[1]])) 
-                            instruction.append(f'{opcode} {address}')
-                                              
-            #Register Refrence Instruction
-            elif tokens[0] in Register_instruction_map.keys():
-                # print("-"*30)
-                # print(f'{symbol_table[tokens[0]]} : {bin(Register_instruction_map[tokens[0]])[2:].zfill(16)}')
-                # instruction.append(bin(Register_instruction_map[tokens[0]])[2:].zfill(16))
-                instruction.append(f"{hex_to_binary(str(Register_instruction_map[tokens[0]]))}")
-                
-                # print( instruction)
-                
-            #Input Output Instruction 
-            elif tokens[0] in In_Out_instruction_map.keys():
-                # print("-"*30)
-                print(f'{symbol_table[tokens[0]]} : {In_Out_instruction_map[tokens[0]]}')
-                instruction.append(In_Out_instruction_map[tokens[0]])
-                
-                
     for i in range(len(instruction)):
-        print(f'{location[i]} : {instruction[i]}')
+        print(f'{instruction_locations[i]} : {instruction[i]}')
         
 
-assembly_code_2 ="""
-        ORG 100 /starting location
-        CLE     / clear E
-        CLA
-        STA CTR
-        LDA WRD
-        SZA
-        BUN ROT
-        BUN STP
-ROT,    CIL     /start rotating AC
-        SZE
-        BUN AGN
-        BUN ROT
-AGN,    CLE
-        ISZ CTR
-        SZA
-        BUN ROT
-STP,    HLT
-        ORG 120
-CTR,    HEX 0
-WRD,    HEX 62C1
-        END
+# Example assembly code
 
-"""
-   
 assembly_code_1 = """
             ORG 100
             LDA SUB
@@ -285,10 +187,52 @@ SUB,        DEC  -23 I
 DIF,        HEX  0
             END;
 """
+        
+assembly_code_2 ="""
+        ORG 100 /starting location
+        CLE     / clear E
+        CLA
+        STA CTR
+        LDA WRD
+        SZA
+        BUN ROT
+        BUN STP
+ROT,    CIL     /start rotating AC
+        SZE
+        BUN AGN I
+        BUN ROT
+AGN,    CLE
+        ISZ CTR
+        SZA
+        BUN ROT
+STP,    HLT
+        ORG 120
+CTR,    HEX 0
+WRD,    HEX 62C1
+        END
+
+"""
+   
+assembly_code_3 = """
+            ORG 200
+            LDA VALUE1
+            ADD VALUE2
+            STA RESULT
+            HLT
+VALUE1,    DEC 10
+VALUE2,    DEC 20
+RESULT,    HEX 0
+            END
+"""
 
 
 
-print(first_pass_assembler_sl(assembly_code_2))
-second_pass_assembler(assembly_code_2)
 
 
+# Testing                
+symbol_table , symbol_label, instruction_label , instruction_locations= first_pass_assembler(assembly_code_3)
+print(symbol_label)
+second_pass_assembler(assembly_code_3)
+
+# for i in range(len(instruction_locations)) : 
+#     print(f'{instruction_label[i]} : {instruction_locations[i]}')
